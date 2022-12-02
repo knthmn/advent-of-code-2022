@@ -9,6 +9,7 @@ packages = [{include = "advent_of_code_2022"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+numpy = "^1.23.5"
 
 [tool.poetry.group.dev.dependencies]
 black = {extras = ["d"], version = "^22.10.0"}
