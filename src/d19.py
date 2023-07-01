@@ -36,10 +36,11 @@ def quality_level(line: str, allowed_time: int) -> tuple[int, int]:
     assert match is not None
     groups = [int(num) for num in match.groups()]
 
-    ore_cost = Material(groups[1], 0, 0, 0)
-    clay_cost = Material(groups[2], 0, 0, 0)
-    obsidian_cost = Material(groups[3], groups[4], 0, 0)
-    geode_cost = Material(groups[5], 0, groups[6], 0)
+    ore_bot_cost = Material(groups[1], 0, 0, 0)
+    clay_bot_cost = Material(groups[2], 0, 0, 0)
+    obsidian_bot_cost = Material(groups[3], groups[4], 0, 0)
+    geode_bot_cost = Material(groups[5], 0, groups[6], 0)
+    max_ore_cost = max(ore_bot_cost.ore, clay_bot_cost.ore, obsidian_bot_cost.ore, geode_bot_cost.ore)
 
     global_max_geode = 0
 
@@ -64,44 +65,44 @@ def quality_level(line: str, allowed_time: int) -> tuple[int, int]:
         if max_possible_geode <= global_max_geode:
             return global_max_geode
 
-        enough_ore = resources.ore >= ore_cost.ore
-        enough_clay = resources.ore >= clay_cost.ore
+        enough_ore = resources.ore >= ore_bot_cost.ore
+        enough_clay = resources.ore >= clay_bot_cost.ore
         enough_obsidian = (
-            resources.ore >= obsidian_cost.ore and resources.clay >= obsidian_cost.clay
+            resources.ore >= obsidian_bot_cost.ore and resources.clay >= obsidian_bot_cost.clay
         )
         enough_geode = (
-            resources.ore >= geode_cost.ore
-            and resources.obsidian >= geode_cost.obsidian
+            resources.ore >= geode_bot_cost.ore
+            and resources.obsidian >= geode_bot_cost.obsidian
         )
 
         if enough_geode and opportunity.geode:
             max_geode = max(
                 max_geode,
                 search(
-                    resources + bots - geode_cost, bots + Material(0, 0, 0, 1), time + 1, 
+                    resources + bots - geode_bot_cost, bots + Material(0, 0, 0, 1), time + 1, 
                 ),
             )
-        if enough_obsidian and opportunity.obsidian:
+        if enough_obsidian and opportunity.obsidian and bots.obsidian < geode_bot_cost.obsidian:
             max_geode = max(
                 max_geode,
                 search(
-                    resources + bots - obsidian_cost,
+                    resources + bots - obsidian_bot_cost,
                     bots + Material(0, 0, 1, 0),
                     time + 1,
                 ),
             )
-        if enough_clay and opportunity.clay:
+        if enough_clay and opportunity.clay and bots.clay < obsidian_bot_cost.clay:
             max_geode = max(
                 max_geode,
                 search(
-                    resources + bots - clay_cost, bots + Material(0, 1, 0, 0), time + 1
+                    resources + bots - clay_bot_cost, bots + Material(0, 1, 0, 0), time + 1
                 ),
             )
-        if enough_ore and opportunity.ore:
+        if enough_ore and opportunity.ore and bots.ore < max_ore_cost:
             max_geode = max(
                 max_geode,
                 search(
-                    resources + bots - ore_cost, bots + Material(1, 0, 0, 0), time + 1
+                    resources + bots - ore_bot_cost, bots + Material(1, 0, 0, 0), time + 1
                 ),
             )
         max_geode = max(
