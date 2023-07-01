@@ -1,95 +1,130 @@
 import re
+from dataclasses import dataclass, replace
 
 pattern = r"""Blueprint (\d+): Each ore robot costs (\d+) ore. Each clay robot costs (\d+) ore. Each obsidian robot costs (\d+) ore and (\d+) clay. Each geode robot costs (\d+) ore and (\d+) obsidian."""
 
 
-def quality_level(line: str, time: int):
-    groups = [int(num) for num in re.match(pattern, line).groups()]
-    blueprint_id = groups[0]
-    ore_cost = groups[1], 0, 0
-    clay_cost = groups[2], 0, 0
-    obsidian_cost = groups[3], groups[4], 0
-    geode_cost = groups[5], 0, groups[6]
+@dataclass(frozen=True, slots=True)
+class Material:
+    ore: int
+    clay: int
+    obsidian: int
+    geode: int
 
-    states = {(0, 0, 0, 0, 1, 0, 0)}
-    t = 0
-    while True:
-        new_states = set()
-        for state in states:
-            resources = state[:3]
-            geode = state[3]
-            bots = state[4:]
-            ore_bot, clay_bot, obsidian_bot = bots
-            next_resources = tuple(a + b for a, b in zip(resources, bots))
-            possibility = 0
-            if all(a >= b for a, b in zip(resources, ore_cost)) and ore_bot:
-                possibility += 1
-                consumed = tuple(a - b for a, b in zip(next_resources, ore_cost))
-                new_states.add((*consumed, geode, ore_bot + 1, clay_bot, obsidian_bot))
-            if all(a >= b for a, b in zip(resources, clay_cost)):
-                possibility += 1
-                consumed = tuple(a - b for a, b in zip(next_resources, clay_cost))
-                new_states.add((*consumed, geode, ore_bot, clay_bot + 1, obsidian_bot))
-            if all(a >= b for a, b in zip(resources, obsidian_cost)):
-                possibility += 1
-                consumed = tuple(a - b for a, b in zip(next_resources, obsidian_cost))
-                new_states.add((*consumed, geode, ore_bot, clay_bot, obsidian_bot + 1))
-            if all(a >= b for a, b in zip(resources, geode_cost)):
-                possibility += 1
-                consumed = tuple(a - b for a, b in zip(next_resources, geode_cost))
-                new_states.add((*consumed, geode + (time - t - 1), *bots))
-            if possibility != 4:
-                new_states.add((*next_resources, geode, *bots))
-        states = new_states
+    def copy(self, **changes):
+        return replace(self, **changes)
 
-        t += 1
-        if t == time:
-            break
+    def __add__(self, other: "Material"):
+        return Material(
+            self.ore + other.ore,
+            self.clay + other.clay,
+            self.obsidian + other.obsidian,
+            self.geode + other.geode,
+        )
 
-        filtered_states = set()
-        # I don't know what +10 works, I tried +1 and +2. Maybe I am reasoning
-        # this wrong so a buffer is needed, investigate further.
-        for state in states:
-            ore, clay, obsidian, geode, ore_bot, clay_bot, obsidian_bot = state
-            max_cost_ore = max(
-                cost[0] for cost in (ore_cost, clay_cost, obsidian_cost, geode_cost)
+    def __sub__(self, other: "Material"):
+        return Material(
+            self.ore - other.ore,
+            self.clay - other.clay,
+            self.obsidian - other.obsidian,
+            self.geode - other.geode,
+        )
+
+
+def quality_level(line: str, allowed_time: int) -> tuple[int, int]:
+    match = re.match(pattern, line)
+    assert match is not None
+    groups = [int(num) for num in match.groups()]
+
+    ore_cost = Material(groups[1], 0, 0, 0)
+    clay_cost = Material(groups[2], 0, 0, 0)
+    obsidian_cost = Material(groups[3], groups[4], 0, 0)
+    geode_cost = Material(groups[5], 0, groups[6], 0)
+
+    global_max_geode = 0
+
+    def search(
+        resources: Material,
+        bots: Material,
+        time: int,
+        opportunity: Material = Material(1, 1, 1, 1),
+    ) -> int:
+        nonlocal global_max_geode
+
+        max_geode = resources.geode
+        if time == allowed_time:
+            return max_geode
+
+        remaining_time = allowed_time - time
+        max_possible_geode = (
+            max_geode
+            + bots.geode * remaining_time
+            + (remaining_time - 1) * remaining_time // 2
+        )
+        if max_possible_geode <= global_max_geode:
+            return global_max_geode
+
+        enough_ore = resources.ore >= ore_cost.ore
+        enough_clay = resources.ore >= clay_cost.ore
+        enough_obsidian = (
+            resources.ore >= obsidian_cost.ore and resources.clay >= obsidian_cost.clay
+        )
+        enough_geode = (
+            resources.ore >= geode_cost.ore
+            and resources.obsidian >= geode_cost.obsidian
+        )
+
+        if enough_geode and opportunity.geode:
+            max_geode = max(
+                max_geode,
+                search(
+                    resources + bots - geode_cost, bots + Material(0, 0, 0, 1), time + 1, 
+                ),
             )
-            if ore >= (max_cost_ore - ore_bot) * (time - t - 1) and ore >= max_cost_ore:
-                ore = min(ore, max_cost_ore + 10)
-                ore_bot = min(ore_bot, max_cost_ore + 10)
-            if (
-                clay >= (obsidian_cost[1] - clay_bot) * (time - t - 1)
-                and clay >= obsidian_cost[1]
-            ):
-                clay = min(clay, obsidian_cost[1] + 10)
-                clay_bot = min(clay_bot, obsidian_cost[1] + 10)
-            if (
-                obsidian >= (geode_cost[2] - obsidian_bot) * (time - t - 1)
-                and obsidian >= geode_cost[2]
-            ):
-                obsidian = min(obsidian, geode_cost[2] + 10)
-                obsidian_bot = min(obsidian_bot, geode_cost[2] + 10)
-            filtered_states.add(
-                (ore, clay, obsidian, geode, ore_bot, clay_bot, obsidian_bot)
+        if enough_obsidian and opportunity.obsidian:
+            max_geode = max(
+                max_geode,
+                search(
+                    resources + bots - obsidian_cost,
+                    bots + Material(0, 0, 1, 0),
+                    time + 1,
+                ),
             )
-        states = filtered_states
+        if enough_clay and opportunity.clay:
+            max_geode = max(
+                max_geode,
+                search(
+                    resources + bots - clay_cost, bots + Material(0, 1, 0, 0), time + 1
+                ),
+            )
+        if enough_ore and opportunity.ore:
+            max_geode = max(
+                max_geode,
+                search(
+                    resources + bots - ore_cost, bots + Material(1, 0, 0, 0), time + 1
+                ),
+            )
+        max_geode = max(
+            max_geode,
+            search(
+                resources + bots,
+                bots,
+                time + 1,
+                Material(
+                    int(not enough_ore and opportunity.ore),
+                    int(not enough_clay and opportunity.clay),
+                    int(not enough_obsidian and opportunity.obsidian),
+                    int(not enough_geode and opportunity.obsidian),
+                ),
+            ),
+        )
 
-        # this part runs at n^2, but in the end it removes enough states that
-        # the runtime is pretty much the same
-        filtered_states = set(states)
-        for ref_state in states:
-            if ref_state not in filtered_states:
-                continue
-            new_filtered_states = set()
-            for state in filtered_states:
-                if state == ref_state:
-                    new_filtered_states.add(state)
-                elif not all(a <= b for a, b in zip(state, ref_state)):
-                    new_filtered_states.add(state)
-            filtered_states = new_filtered_states
-        states = filtered_states
+        if max_geode > global_max_geode:
+            global_max_geode = max_geode
 
-    return blueprint_id, max(state[3] for state in states)
+        return max_geode
+
+    return groups[0], search(Material(0, 0, 0, 0), Material(1, 0, 0, 0), 0)
 
 
 def part1(lines: list[str]):
